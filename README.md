@@ -82,6 +82,13 @@ own SQLite file and ticket prefix. Switch between boards with the dropdown,
 or use the URL: `?project=<slug>`. Cards do not bleed between boards; the
 global search above does scan all of them.
 
+## See it in motion
+
+![Drag a card from NEU to IN ARBEIT, then open the modal](docs/screenshots/board-demo.gif)
+
+Drag-drop and the per-ticket modal in ~14 seconds (recorded with playwright,
+loop-safe).
+
 ## Install & run
 
 ```bash
