@@ -7,7 +7,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-EX="--exclude-dir=.git --exclude-dir=boards --exclude-dir=scripts"
+EX="--exclude-dir=.git --exclude-dir=boards --exclude-dir=scripts --exclude-dir=.venv --exclude-dir=.gif-tmp"
 
 # Brand-Liste in separater Variable damit grep sie nicht in sich selbst findet
 BRANDS='jira|trello|atlassian|confluence|bitbucket|linear[ -]app|notion app|asana|monday\.com|clickup|gitlab|gitea|copilot|jetbrains|intellij|cursor-ide|cursor\.ai|cursor\.com|anysphere'

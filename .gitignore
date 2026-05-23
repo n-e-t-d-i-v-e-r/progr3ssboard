@@ -30,3 +30,6 @@ Thumbs.db
 # Logs
 *.log
 /tmp/
+
+# GIF-Aufnahme-Zwischenfiles (record-gif.py)
+.gif-tmp/
