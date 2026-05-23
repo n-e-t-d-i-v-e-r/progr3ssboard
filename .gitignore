@@ -1,0 +1,32 @@
+# Per-Board Daten (laufzeit-erzeugt, jeder User hat seine eigenen)
+boards/
+!boards/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtuelle Environments
+.venv/
+venv/
+env/
+
+# Editor / OS — IDE-Konfig-Verzeichnisse bitte lokal pro User in
+# ~/.gitignore_global oder .git/info/exclude listen; im OSS-Repo defensiv
+# nur generische File-System-Artefakte:
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
