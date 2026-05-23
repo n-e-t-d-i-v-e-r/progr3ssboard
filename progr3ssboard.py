@@ -872,7 +872,10 @@ def render_page(project=None):
   </div>
 </div>
 
-<div class="footer">progr3ssboard · SQLite: <code>board.db</code> · optionaler Markdown-Importer: <code>python3 board-db.py migrate</code></div>
+<div class="footer">
+  <img src="/assets/logo.svg" alt="" style="height:14px;vertical-align:-2px;margin-right:6px;opacity:0.7">
+  progr3ssboard · SQLite: <code>board.db</code> · optionaler Markdown-Importer: <code>python3 board-db.py migrate</code>
+</div>
 
 <script>
 const ALLOWED_STATUS = {json.dumps(ALLOWED_STATUS)};
@@ -1324,6 +1327,14 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path == "/":
                 return self._send(200, render_page(project))
+            # Static assets (logo etc.) — Fork-customizable: replace files in assets/
+            if u.path.startswith("/assets/"):
+                safe = re.sub(r'[^A-Za-z0-9._/-]', '', u.path[len("/assets/"):])[:120]
+                fp = Path(__file__).resolve().parent / "assets" / safe
+                if not fp.is_file() or ".." in safe:
+                    return self._json(404, {"error":"not found"})
+                mime, _ = mimetypes.guess_type(safe)
+                return self._send(200, fp.read_bytes(), mime or 'application/octet-stream')
             if u.path == "/api/tickets":
                 conn = connect(project)
                 rows = [dict(r) for r in conn.execute("SELECT id,type,status,tag,prio,title,iter_count FROM tickets ORDER BY id")]

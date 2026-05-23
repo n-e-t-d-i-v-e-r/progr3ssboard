@@ -127,6 +127,14 @@ set `source_md` in the project config and run `python3 board-db.py migrate`.
 Tickets, tags, and last-reset dates are extracted; the original Markdown is
 never modified.
 
+## Branding the footer (your fork)
+
+The bottom-right of every board shows a small mark from `assets/logo.svg`.
+Replace that file with your own SVG (or PNG/JPG — file extension drives the
+mime type) to brand your fork. The default is a six-bar mark in the project's
+accent color; height in the footer is fixed to ~14 px, so anything legible at
+that scale works.
+
 ## Architecture
 
 - `progr3ssboard.py` — HTTP server, HTML/CSS/JS, REST endpoints, business logic
