@@ -5,6 +5,13 @@ SQLite-backed, zero external dependencies, drag-drop UI, runs on your machine.
 
 For when you want to track tickets without giving them to anyone else.
 
+![progr3ssboard board view](docs/screenshots/board.png)
+
+> Six columns by lifecycle: **NEU** (open, untouched) · **IN ARBEIT** (active) ·
+> **TESTING** (deployed, sandbox <7d) · **READY** (deployed, ≥7d stable) ·
+> **PARKED** (waiting on something) · **CLOSED** (done; drag out to re-open).
+> Drag horizontally to change status, vertically to reorder within a column.
+
 ---
 
 ## Why

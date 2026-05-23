@@ -872,7 +872,7 @@ def render_page(project=None):
   </div>
 </div>
 
-<div class="footer">progr3ssboard · SQLite: board.db · Migration: <code>python3 board-db.py migrate</code> · BACKLOG.md unangetastet</div>
+<div class="footer">progr3ssboard · SQLite: <code>board.db</code> · optionaler Markdown-Importer: <code>python3 board-db.py migrate</code></div>
 
 <script>
 const ALLOWED_STATUS = {json.dumps(ALLOWED_STATUS)};
