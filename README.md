@@ -119,11 +119,25 @@ GET    /api/projects                    List boards
 POST   /api/projects                    Create board (body: {key, name, id_prefix})
 ```
 
+## Contributing
+
+**Everyone is welcome** — bug reports, feature ideas, code, docs, screenshots,
+critique of weird design choices. The project will stay small on purpose, but
+contributions are read and answered.
+
+- 🐛 **Bug?** → [Open an Issue](https://github.com/n-e-t-d-i-v-e-r/progr3ssboard/issues/new) (template in [CONTRIBUTING.md](CONTRIBUTING.md))
+- 💡 **Feature idea?** → Issue with `[idea]` in the title, or start a [Discussion](https://github.com/n-e-t-d-i-v-e-r/progr3ssboard/discussions)
+- 🛠 **Want to code?** → Fork → branch → PR. Details and design constraints in [CONTRIBUTING.md](CONTRIBUTING.md)
+- ❓ **Question?** → Discussions, not Issues
+
+The maintainer is a one-person operation. Don't expect instant turnaround,
+but expect honest answers.
+
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [LICENSE](LICENSE).
 
 ## Status
 
-Early, opinionated, single-author. Bug reports welcome; feature requests
-will be evaluated against "does this stay a single Python file".
+Early, opinionated. Bug reports welcome; feature requests will be evaluated
+against "does this stay a single Python file with zero dependencies".
