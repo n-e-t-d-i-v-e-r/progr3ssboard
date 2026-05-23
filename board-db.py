@@ -395,7 +395,7 @@ def migrate(project=None):
     if src is None:
         conn = connect(project)
         conn.commit(); conn.close()
-        print(f"✓ [{project}] leeres Custom-Board angelegt (kein BACKLOG-Import)")
+        print(f"✓ [{project}] leeres Custom-Board angelegt (kein Markdown-Import)")
         return
     if not src.exists():
         print(f"× Source-MD fehlt: {src}"); return
