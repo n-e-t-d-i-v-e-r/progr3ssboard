@@ -45,6 +45,43 @@ nothing else. One file to run, one file (per board) on disk.
 - **No dependencies** — stdlib `http.server`, `sqlite3`, `pathlib`, `re`.
   Works with Python 3.9+
 
+## How it works in 4 clicks
+
+A new install starts with an empty board. Add some cards, move them around,
+spin up a second board — that's the whole tour.
+
+### 1. Empty board, ready to use
+
+![Step 1 — empty board](docs/screenshots/walkthrough/01-empty-board.png)
+
+Six columns by lifecycle. Every column except CLOSED has a faint `+ Karte
+hinzufügen` button — click to add a card directly into that status.
+
+### 2. Add a few cards
+
+![Step 2 — three cards in NEU](docs/screenshots/walkthrough/02-three-cards.png)
+
+Cards get an auto-generated ID (`B-1`, `B-2`, …), type-badge (BUG / FEATURE /
+SPEC / …), tag-pill in your chosen tag color, and a reset-age indicator. Card
+border colors mirror the priority/age traffic light (red / orange / green).
+
+### 3. Drag to change status, drag to re-order
+
+![Step 3 — cards distributed across columns](docs/screenshots/walkthrough/03-distributed.png)
+
+Drag a card horizontally to change its status (`open` → `progress` → … →
+`closed`). Drag vertically inside a column to re-order. Drop indicators (orange
+bars) show where the card will land. Drag out of CLOSED to re-open.
+
+### 4. Multiple boards under one server
+
+![Step 4 — second project board](docs/screenshots/walkthrough/04-second-board.png)
+
+Click `+ Board` in the top bar to create another independent board with its
+own SQLite file and ticket prefix. Switch between boards with the dropdown,
+or use the URL: `?project=<slug>`. Cards do not bleed between boards; the
+global search above does scan all of them.
+
 ## Install & run
 
 ```bash
