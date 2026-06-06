@@ -32,11 +32,15 @@ PROJECTS = _bdb.PROJECTS
 DEFAULT_PROJECT = _bdb.DEFAULT_PROJECT
 project_cfg = _bdb.project_cfg
 
-ALLOWED_STATUS = ["open", "progress", "deployed", "reopened", "parked", "closed"]
+ALLOWED_STATUS = ["open", "change-request", "progress", "deployed", "reopened", "parked", "closed"]
 ALLOWED_TYPE   = ["BUG", "FEATURE", "HOTFIX", "REBUILD", "SPEC", "FUTURE", "INFRA"]
 LINK_TYPES     = ["blocks", "blocked-by", "relates-to", "duplicates", "iteration-of", "parent-of", "child-of"]
 # Types die als "Hauptticket" / Anforderung gelten (visuell prominent)
 PARENT_TYPES   = {"FEATURE", "SPEC", "REBUILD", "FUTURE"}
+
+# Demo-Instanz-Flag (CLI --demo): zeigt ein DEMO-Badge im Board-Header, damit die
+# öffentliche OSS-Showcase-Instanz nicht mit echten/produktiven Boards verwechselt wird.
+DEMO_MODE = False
 
 REPO_ROOT      = Path(__file__).resolve().parents[2]
 def _attach_dir(project):    return project_cfg(project)["attachments"]
@@ -97,7 +101,14 @@ def md_to_html(md):
         nonlocal section_open
         close_sub()
         if section_open: out.append('</div>'); section_open = False
+    import re as _re_md
     for line in (md or "").split('\n'):
+        # Skip reine HTML-Kommentar-Zeilen (z.B. Counter-Auto-Marker)
+        if _re_md.match(r'^\s*<!--.*-->\s*$', line):
+            continue
+        # Strip inline HTML-Kommentare aus normalen Zeilen
+        line = _re_md.sub(r'<!--.*?-->', '', line)
+        if not line.strip(): continue
         if line.startswith('## B-'):
             close_lists(); close_sec()
             out.append(f'<div class="t-main-header"><h2>{html.escape(line[3:].strip())}</h2></div>'); continue
@@ -327,13 +338,15 @@ def _days_since(d_str, today):
     except: return None
 
 def next_id(project=None):
-    """Project-aware ID-Generator. Nimmt den Prefix aus pcfg['id_prefix'] (z.B. 'B',
-    'TASK', 'FOO') und sucht die höchste existierende Nummer dafür + 1. Bei Boards
-    mit mehreren Prefixen (z.B. 'B-' für Bugs und 'F-' für Features) wird der
-    Prefix mit dem höchsten existierenden Counter genommen — neue Prefix-Typen
-    müssen einmal manuell vergeben werden, danach läuft der Counter."""
+    """Project-aware ID-Generator. Liest id_regex aus project_cfg, extrahiert die
+    Ziffer am Ende, nimmt höchste +1. Prefix wird vom existierenden ID übernommen
+    Fallback-First-ID kommt aus dem projekt-spezifischen id_prefix (sonst 'B-1')."""
     pcfg = project_cfg(project)
-    default_first = f"{pcfg.get('id_prefix') or 'B'}-1"
+    # Default-Prefix: bei Custom-Projekten aus id_prefix, sonst Fallback B-1.
+    if pcfg.get("id_prefix"):
+        default_first = f"{pcfg['id_prefix']}-1"
+    else:
+        default_first = "B-1"
     conn = connect(project)
     rows = [r['id'] for r in conn.execute("SELECT id FROM tickets")]
     conn.close()
@@ -346,8 +359,10 @@ def next_id(project=None):
         prefix, num = m.group(1), int(m.group(2))
         if num > best.get(prefix, -1): best[prefix] = num
     if not best: return default_first
-    # Heuristik: der Prefix mit höchstem Counter gewinnt (= aktivster Track).
-    prefix = max(best, key=lambda p: best[p])
+    # Bei `create_ticket`: vorhandenen Prefix der Mehrheit nutzen.
+    # Heuristik: Häufigster Bug-Prefix (B…) gewinnt.
+    bug_prefixes = [p for p in best if p.startswith("B")]
+    prefix = max(bug_prefixes, key=lambda p: best[p]) if bug_prefixes else next(iter(best))
     return f"{prefix}{best[prefix]+1}"
 
 # ─── CRUD ──────────────────────────────────────────────────────────────────────
@@ -467,9 +482,23 @@ def delete_ticket(tid, project=None):
 # ─── HTML render ───────────────────────────────────────────────────────────────
 
 CSS = """
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-body { background: #1a1d23; color: #e4e6eb; padding: 16px; min-height: 100vh; }
-h1 { font-size: 22px; color: #ff9933; font-weight: 700; }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+body { background: #0f1115; color: #e4e6eb; padding: 16px; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+h1 { font-size: 22px; color: #ff9933; font-weight: 700; letter-spacing: -0.3px; }
+.tab-content-area h1, .tab-content-area h2, .tab-content-area h3, .tab-content-area h4 { color: #e4e6eb; font-weight: 700; letter-spacing: -0.3px; margin: 18px 0 10px; line-height: 1.3; }
+.tab-content-area h1 { font-size: 22px; color: #3498db; padding-bottom: 8px; border-bottom: 2px solid #2a2e36; }
+.tab-content-area h2 { font-size: 18px; color: #5dade2; }
+.tab-content-area h3 { font-size: 15px; color: #ff9933; }
+.tab-content-area h4 { font-size: 13px; color: #f1c40f; text-transform: uppercase; letter-spacing: 0.5px; }
+.tab-content-area p { margin: 8px 0; line-height: 1.65; color: #c8ccd4; font-size: 13.5px; }
+.tab-content-area strong { color: #fff; font-weight: 700; }
+.tab-content-area code { background: #1a1d24; color: #ff9933; padding: 2px 6px; border-radius: 3px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; }
+.tab-content-area ul, .tab-content-area ol { margin: 8px 0 8px 22px; color: #c8ccd4; }
+.tab-content-area li { margin: 4px 0; line-height: 1.6; font-size: 13.5px; }
+.tab-content-area a { color: #5dade2; text-decoration: none; }
+.tab-content-area a:hover { color: #85c1e9; text-decoration: underline; }
+.tab-content-area blockquote { border-left: 3px solid #3a3f4a; padding: 6px 14px; margin: 10px 0; color: #aab0bd; font-style: italic; background: rgba(58,63,74,0.2); border-radius: 3px; }
+.tab-content-area hr { border: 0; border-top: 1px solid #2a2e36; margin: 18px 0; }
 .subtitle { font-size: 12px; color: #8b95a8; margin: 4px 0 14px; }
 .topbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
 .topbar button { background: #ff9933; color: #1a1d23; border: none; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
@@ -544,8 +573,62 @@ h1 { font-size: 22px; color: #ff9933; font-weight: 700; }
 .worktree-box .actions { margin-top: 12px; display: flex; gap: 8px; }
 .worktree-box button { background: #ff9933; color: #1a1d23; border: none; border-radius: 4px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .worktree-box button.danger { background: #c0392b; color: #fff; }
-.card-title { font-weight: 700; color: #ff9933; font-size: 13px; margin: 4px 0 6px; line-height: 1.35; }
+.card-title { font-weight: 500; color: #b8bfca; font-size: 13px; margin: 6px 0 8px; line-height: 1.4; }
 .card-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: #8b95a8; margin: 4px 0; }
+.card-iter-badge { background: #f1c40f; color: #000; padding: 1px 7px; border-radius: 8px; font-size: 10px; font-weight: 700; cursor: help; }
+.card-pill-primary { color: #fff; padding: 3px 11px; border-radius: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.2px; white-space: nowrap; }
+.card-tag-arch { color: #fff; padding: 1px 8px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+.workflow-pill { color: #fff; padding: 2px 9px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+.card-iter-pill { background: #3a3f4a; color: #c8ccd4; padding: 2px 9px; border-radius: 10px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.card-iter-pill.warn { background: #f1c40f; color: #000; }
+.hero-section { padding: 16px 20px; border-radius: 10px; margin-bottom: 14px; border: 1px solid #2a2e36; }
+.hero-userstory { background: linear-gradient(135deg, rgba(52,152,219,0.18), rgba(52,152,219,0.06)); border-left: 4px solid #3498db; }
+.hero-status { background: linear-gradient(135deg, rgba(241,196,15,0.12), rgba(241,196,15,0.03)); border-left: 4px solid #f1c40f; }
+.hero-label { font-size: 11px; color: #8b95a8; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700; margin-bottom: 8px; }
+.hero-body { line-height: 1.65; color: #e4e6eb; }
+.hero-body p { font-size: 14px; color: #e4e6eb; }
+.hero-body strong { color: #fff; }
+.sections-toolbar { display: flex; gap: 6px; margin: 20px 0 10px; align-items: center; }
+.section-collapsible { background: #1a1d24; border: 1px solid #2a2e36; border-radius: 7px; margin-bottom: 8px; overflow: hidden; }
+.section-collapsible[open] { border-color: #3498db; }
+.section-collapsible summary { padding: 11px 16px; cursor: pointer; font-size: 13px; color: #c8ccd4; user-select: none; list-style: none; font-weight: 600; letter-spacing: 0.2px; }
+.section-collapsible summary::-webkit-details-marker { display: none; }
+.section-collapsible summary::before { content: '▶'; display: inline-block; margin-right: 10px; color: #6b7280; transition: transform 0.2s; font-size: 9px; }
+.section-collapsible[open] summary::before { transform: rotate(90deg); color: #3498db; }
+.section-collapsible summary:hover { background: #1f2228; color: #fff; }
+.section-collapsible[open] summary { background: rgba(52,152,219,0.10); border-bottom: 1px solid #2a2e36; }
+.section-collapsible-body { padding: 14px 18px; line-height: 1.6; }
+.view-tabs-bar { display: flex; gap: 4px; border-bottom: 2px solid #3a3f4a; margin-bottom: 16px; padding-bottom: 0; }
+.view-tab-btn { background: transparent; color: #888; border: none; padding: 8px 16px; font-size: 13px; cursor: pointer; font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.view-tab-btn:hover { color: #fff; }
+.view-tab-btn.active { color: #fff; border-bottom-color: #3498db; }
+.badge-num { background: #3a3f4a; color: #ddd; padding: 1px 7px; border-radius: 8px; font-size: 11px; margin-left: 4px; }
+.view-tab-btn.active .badge-num { background: #3498db; color: #fff; }
+.tab-content-area { padding: 4px 2px; line-height: 1.55; }
+.iter-toolbar { display: flex; gap: 6px; margin-bottom: 12px; }
+.iter-quick-btn { background: #2c303a; color: #ddd; border: 1px solid #3a3f4a; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: 600; }
+.iter-quick-btn:hover { background: #27ae60; color: #fff; border-color: #27ae60; }
+.iter-collapsible { background: #1a1d24; border: 1px solid #2a2e36; border-radius: 8px; margin-bottom: 10px; overflow: hidden; transition: border-color 0.2s; }
+.iter-collapsible[open] { border-color: #27ae60; box-shadow: 0 2px 8px rgba(39,174,96,0.1); }
+.iter-collapsible summary { padding: 12px 16px; cursor: pointer; font-size: 13px; color: #ddd; user-select: none; list-style: none; transition: background 0.15s; }
+.iter-collapsible summary::-webkit-details-marker { display: none; }
+.iter-collapsible summary::before { content: '▶'; display: inline-block; margin-right: 8px; color: #888; transition: transform 0.2s; font-size: 10px; }
+.iter-collapsible[open] summary::before { transform: rotate(90deg); color: #27ae60; }
+.iter-collapsible summary:hover { background: #22262e; }
+.iter-collapsible[open] summary { background: rgba(39,174,96,0.12); border-bottom: 1px solid #2a2e36; }
+.iter-collapsible.iter-active { border-color: #27ae60; border-width: 2px; box-shadow: 0 0 0 2px rgba(39,174,96,0.25), 0 4px 12px rgba(39,174,96,0.2); }
+.iter-collapsible.iter-active summary { background: linear-gradient(90deg, rgba(39,174,96,0.2), rgba(39,174,96,0.05)); }
+.iter-collapsible-body { padding: 16px 18px; background: #15171c; border-top: 1px solid #2a2e36; font-size: 13.5px; line-height: 1.65; }
+.deploy-badge { background: #16a085; color: #fff; padding: 1px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; margin-left: 6px; }
+.live-badge { background: #27ae60; color: #fff; padding: 2px 10px; border-radius: 10px; font-size: 10px; font-weight: 700; margin-left: 6px; animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(39,174,96,0.5); } 50% { box-shadow: 0 0 0 6px rgba(39,174,96,0); } }
+.wt-warn { background: rgba(231,76,60,0.12); border-left: 4px solid #e74c3c; padding: 12px 16px; border-radius: 5px; margin-bottom: 14px; color: #ffd5cc; font-size: 13px; line-height: 1.6; }
+.wt-warn code { background: #2a1f1f; color: #ff9966; padding: 2px 6px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 11.5px; }
+.meta-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.meta-row { display: flex; padding: 10px 14px; background: #1a1d24; border-radius: 5px; border-left: 3px solid #3498db; }
+.meta-row-warn { border-left-color: #e74c3c; background: rgba(231,76,60,0.06); }
+.meta-key { font-weight: 600; color: #8b95a8; min-width: 180px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+.meta-val { color: #fff; font-size: 13.5px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
 .iter-row { background: #1f2228; padding: 7px 9px; border-radius: 4px; margin-top: 8px; font-size: 11px; border: 1px solid #2a2e36; }
 .iter-row .num { font-weight: 700; color: #fff; }
 .iter-row .sandbox { display: inline-block; padding: 1px 7px; border-radius: 3px; margin: 0 4px; font-size: 10px; font-weight: 700; }
@@ -637,20 +720,57 @@ h1 { font-size: 22px; color: #ff9933; font-weight: 700; }
 .cb-box .cb-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 """
 
+def _workflow_lane(t):
+    """Mappt Ticket auf Worktree-Spalte: in_arbeit / testing / ready / parked / closed / backlog."""
+    import re as _re
+    st = t.get('status', 'open')
+    if st in ('open', 'change-request'): return 'backlog'
+    if st == 'closed': return 'closed'
+    if st == 'parked': return 'parked'
+    has_iter = bool(t.get('iters')) or (t.get('iter_count') or 0) >= 1
+    cm = t.get('content_md') or ''
+    sandbox = (
+        has_iter or st in ('deployed', 'reopened') or
+        bool(_re.search(r'Pre-(?:Edit-)?Tag|v-stable-\d{8}|deployed\s+20\d\d-\d\d|commit\s+`?[a-f0-9]{7,}`?|[Ss]andbox[-\s](?:[Ss]tresstest|[Dd]eploy|[Tt]est|[Aa]ktiv)|auf [Ss]andbox', cm))
+    )
+    if sandbox:
+        if t.get('iters'):
+            sb = iter_sandbox_days(t['iters'][-1].get('deploy_date'))
+        else:
+            sb = iter_sandbox_days(t.get('last_reset'))
+        if sb is None or sb <= 7: return 'testing'
+        if sb <= 14: return 'ready'
+        return 'parked'
+    return 'in_arbeit'
+
 def render_card(t):
+    import sys as _s
+    _s.path.insert(0, str(Path(__file__).resolve().parent))
+    from board_main_tag import parse_main_tag, MAIN_TAG_PILL_COLOR, infer_main_tag
+
     amp = t['ampel']
     tid = t['id']
-    tag = html.escape(t.get('tag') or '?')
-    tag_bg = tag_color(t.get('tag') or '?')
+    raw_tag = t.get('tag') or ''
+    main_tag, secondary, _rest = parse_main_tag(raw_tag)
+    if not main_tag:
+        main_tag = infer_main_tag(t.get('title'), t.get('type'), raw_tag)
+    main_color, main_icon, main_label = MAIN_TAG_PILL_COLOR.get(main_tag, MAIN_TAG_PILL_COLOR['general'])
+    secondary_html = ''
+    if secondary:
+        secondary_html = f'<span class="card-tag-secondary">{html.escape(secondary)}</span>'
+
     ttype = t.get('type') or 'BUG'
     type_bg, type_icon = TYPE_COLORS.get(ttype, TYPE_COLORS['BUG'])
     title = html.escape(t.get('title') or '(ohne Titel)')
     days = t.get('days_since_reset')
     days_disp = f"{days}d" if days is not None else "—"
     it_n = t.get('iter_count', 0)
-    warn = (it_n >= 5)
-    warn_html = f'<span class="card-warn">⚠{it_n} Iter</span>' if warn else ''
-    iter_count_str = f"{it_n}It" if it_n else "—"
+    if it_n == 0:
+        iter_pill = ''
+    elif it_n >= 5:
+        iter_pill = f'<span class="card-iter-pill warn">⚠ {it_n} Iter</span>'
+    else:
+        iter_pill = f'<span class="card-iter-pill">🔄 {it_n} Iter</span>'
     tests = f"{t.get('tests_passed',0)}/{t.get('tests_total',0)}"
     # Hierarchie-Pills
     hierarchy_pills = []
@@ -660,70 +780,95 @@ def render_card(t):
         hierarchy_pills.append(f'<span class="hier-pill child">⤓ {t["child_count"]}</span>')
     hierarchy_html = "".join(hierarchy_pills)
 
-    iter_html = ""
-    if t['iters']:
-        last = t['iters'][-1]
-        sb = iter_sandbox_days(last.get('deploy_date'))
-        if sb is None:
-            sb_cls, sb_txt = "red", "—d / 7d"
-        elif sb >= 7:
-            sb_cls, sb_txt = "green", f"{sb}d / 7d ✓"
-        else:
-            sb_cls, sb_txt = "red", f"{sb}d / 7d"
-        kind = last.get('kind') or 'fix'
-        lbl = html.escape((last.get('label') or '')[:90])
-        iter_html = f'''<div class="iter-row">
-          <span class="num">Iter-{last["iter_num"]}</span> ·
-          <span class="sandbox {sb_cls}">{sb_txt}</span> ·
-          <span>{kind}</span>
-          <span class="label">{lbl}</span>
-        </div>'''
     parent_klass = " parent-feature" if ttype in PARENT_TYPES else ""
     crown = "👑 " if ttype in PARENT_TYPES else ""
+    # Erste Pill: ID + Architektur-Bereich (kein „bug"-Text), Architektur-Farbe
+    sec_label = secondary or '—'
+    sec_color = tag_color(secondary or '?')
+    primary_pill = f'<span class="card-pill-primary" style="background:{type_bg}">{crown}{tid} · {html.escape(sec_label)}</span>'
+    # Footer-Pill (Architektur-Bereich, Architektur-Farbe)
+    footer_arch_pill = f'<span class="card-tag-arch" style="background:{sec_color}">{html.escape(sec_label)}</span>' if secondary else ''
+    # Worktree-Lane-Pill (Spalte im Kanban)
+    lane = _workflow_lane(t)
+    lane_meta = {
+        'backlog':    ('#95a5a6', 'BACKLOG'),
+        'in_arbeit':  ('#e67e22', 'IN ARBEIT'),
+        'testing':    ('#6b7280', 'REVIEW/TESTING'),
+        'ready':      ('#16a085', 'READY'),
+        'parked':     ('#4a4f5a', 'PARKED'),
+        'closed':     ('#2c3034', 'CLOSED'),
+    }.get(lane, ('#7f8c8d', lane.upper()))
+    workflow_color, workflow_label = lane_meta
+    workflow_pill = f'<span class="workflow-pill" style="background:{workflow_color}">{html.escape(workflow_label)}</span>'
     return f'''
     <div class="card {amp}{parent_klass}" draggable="true" data-id="{tid}" onclick="openTicket('{tid}')">
       <div class="card-row1">
-        <span class="card-id">{crown}{tid}</span>
-        <span class="type-badge" style="background:{type_bg}">{type_icon} {ttype}</span>
-        <span class="card-tag" style="background:{tag_bg}">{tag}</span>
-        {warn_html}
+        {primary_pill}
+        {workflow_pill}
+        {iter_pill}
       </div>
       <div class="card-title">{title}</div>
       <div class="card-meta">
         <span>📅 {days_disp}</span>
-        <span>🔄 {iter_count_str}</span>
         <span>🧪 {tests}</span>
+        {footer_arch_pill}
         {hierarchy_html}
       </div>
-      {iter_html}
     </div>'''
 
 def render_page(project=None):
     project = project or DEFAULT_PROJECT
     if project not in PROJECTS: project = DEFAULT_PROJECT
     pname = PROJECTS[project]["name"]
+    demo_badge = (' <span style="display:inline-block;background:#f39c12;color:#1a1a1a;'
+                  'font-size:13px;font-weight:800;letter-spacing:0.5px;padding:2px 9px;'
+                  'border-radius:5px;vertical-align:middle;margin-left:8px" '
+                  'title="Demo-Instanz mit Beispieldaten — nicht produktiv">DEMO</span>') if DEMO_MODE else ''
+    demo_title = ' · DEMO' if DEMO_MODE else ''
     tickets = load_tickets(project=project)
-    # 6-Spalten-Klassifikation
-    # NEU (open, kein Iter), IN_ARBEIT (progress/reopened), TESTING (Iter <7d),
-    # READY (Iter ≥7d), PARKED (parked), CLOSED (closed)
-    cols = {"neu": [], "in_arbeit": [], "testing": [], "ready": [], "parked": [], "closed": []}
+    # 5-Spalten-Klassifikation (P3B-10 v0.2.0: BACKLOG-Spalte ausgegliedert in backlog-html.py)
+    # IN_ARBEIT (progress/reopened ohne Iter), TESTING (Iter <7d), READY (Iter ≥7d), PARKED (parked), CLOSED (closed)
+    # NEU: status ∈ {open, change-request} → BACKLOG-Board (separates Tool)
+    # Iter-Evidenz: DB-iterations ODER iter_count>=1 (MD-Counter) — beide zählen als sandbox-aktiv
+    # Sandbox-Evidenz: jegliche Spur eines Sandbox-Deploys im content_md
+    import re as _re
+    def _has_sandbox_evidence(cm):
+        if not cm: return False
+        return bool(_re.search(
+            r'Pre-(?:Edit-)?Tag|v-stable-\d{8}|deployed\s+20\d\d-\d\d|commit\s+`?[a-f0-9]{7,}`?|[Ss]andbox[-\s](?:[Ss]tresstest|[Dd]eploy|[Tt]est|[Aa]ktiv)|auf [Ss]andbox',
+            cm
+        ))
+    cols = {"in_arbeit": [], "testing": [], "ready": [], "parked": [], "closed": []}
     for t in tickets:
         st = t.get('status', 'open')
+        if st in ("open", "change-request"):
+            continue  # BACKLOG-Board zeigt diese
         if st == "closed":
-            cols["closed"].append(t)
-        elif st == "parked":
-            cols["parked"].append(t)
-        elif t['iters']:
-            sb = iter_sandbox_days(t['iters'][-1].get('deploy_date'))
-            if sb is not None and sb >= 7:
+            cols["closed"].append(t); continue
+        if st == "parked":
+            cols["parked"].append(t); continue
+        # Sandbox-Tests: Iter-Evidenz ODER Status-deployed/reopened ODER content_md-Marker
+        has_iter_evidence = bool(t['iters']) or (t.get('iter_count') or 0) >= 1
+        sandbox_evidence = (
+            has_iter_evidence or
+            st in ("deployed", "reopened") or
+            _has_sandbox_evidence(t.get('content_md'))
+        )
+        if sandbox_evidence:
+            if t['iters']:
+                sb = iter_sandbox_days(t['iters'][-1].get('deploy_date'))
+            else:
+                sb = iter_sandbox_days(t.get('last_reset'))
+            if sb is None:
+                cols["testing"].append(t)
+            elif sb <= 7:
+                cols["testing"].append(t)
+            elif sb <= 14:
                 cols["ready"].append(t)
             else:
-                cols["testing"].append(t)
+                cols["parked"].append(t)  # >14d ohne Sandbox-Update → eingeschlafen
         elif st in ("progress", "reopened", "deployed"):
-            # deployed ohne Iter ist Edge — landet bei In-Arbeit (Tester muss Iter anlegen)
             cols["in_arbeit"].append(t)
-        else:  # 'open' und alles Unbekannte → NEU
-            cols["neu"].append(t)
     # Sortier-Reihenfolge: User-Sort (sort_order) → Ampel → Alter
     order = {"red":0,"orange":1,"green":2,"grey":3}
     for k in cols:
@@ -758,11 +903,17 @@ def render_page(project=None):
     return f'''<!DOCTYPE html>
 <html lang="de"><head>
 <meta charset="utf-8">
-<title>📋 {html.escape(pname)} · Board</title>
+<title>📋 {html.escape(pname)}{demo_title} · Board</title>
 <style>{CSS}</style>
 </head><body>
-<h1>📋 {html.escape(pname)} — {date.today().isoformat()}</h1>
-<div class="subtitle">{n} Tickets · 🔴{n_red} 🟠{n_yel} 🟢{n_grn} · SQLite · Multi-Project</div>
+<div class="topnav-toggle" style="background:#2c303a;padding:10px 20px;border-bottom:2px solid #3a3f4a;display:flex;align-items:center;gap:14px">
+  <span style="font-weight:700;color:#fff">progr3ssboard <span style="color:#888;font-weight:400">◷ PROGRESS</span></span>
+  <span style="flex:1"></span>
+  <a href="/backlog?project={project}" style="padding:6px 14px;border-radius:6px;text-decoration:none;color:#aaa;font-size:13px;font-weight:600;background:#3a3f4a">📋 BACKLOG</a>
+  <a href="#" style="padding:6px 14px;border-radius:6px;text-decoration:none;color:#fff;font-size:13px;font-weight:600;background:#3498db">🛠 PROGR3SSBOARD</a>
+</div>
+<h1>📋 {html.escape(pname)}{demo_badge} — {date.today().isoformat()}</h1>
+<div class="subtitle">{n} Tickets · 🔴{n_red} 🟠{n_yel} 🟢{n_grn} · SQLite · Multi-Project · BACKLOG separat in /backlog</div>
 <div class="topbar">
   <select id="proj-switch" onchange="switchProject(this.value)" title="Projekt-Board wechseln">
     {proj_opts}
@@ -776,7 +927,6 @@ def render_page(project=None):
   <span style="color:#666;font-size:11px;margin-left:auto">Drag horizontal = Status · Drag vertikal = Sortieren · „+ Karte" pro Spalte · Closed → drag raus = wieder eröffnen</span>
 </div>
 <div class="board">
-  {col_html("neu",       "📥 NEU",                 cols["neu"],       "open",     True)}
   {col_html("in_arbeit", "🛠 IN ARBEIT",            cols["in_arbeit"], "progress", True)}
   {col_html("testing",   "🧪 TESTING (Sandbox <7d)", cols["testing"],   "deployed", True)}
   {col_html("ready",     "✅ READY (≥7d ✓)",        cols["ready"],     "deployed", True)}
@@ -794,7 +944,7 @@ def render_page(project=None):
     <label>Anzeigename</label>
     <input id="cb-name" type="text" placeholder="z.B. Mein Projekt-Board">
     <label>Ticket-ID-Prefix</label>
-    <input id="cb-prefix" type="text" value="B" placeholder="B, TASK, FOO …">
+    <input id="cb-prefix" type="text" value="B" placeholder="B, PROJ, FOO …">
     <div class="cb-hint">GROSSBUCHSTABEN/Ziffern, 1-8 Zeichen — Ticket-IDs werden {{prefix}}-1, {{prefix}}-2 …</div>
     <div class="cb-actions">
       <button class="secondary" onclick="closeCreateBoard()">Abbrechen</button>
@@ -814,6 +964,7 @@ def render_page(project=None):
       <button onclick="switchTab('links')" id="tab-links-btn" class="tab-btn">🔗 Links</button>
       <button onclick="switchTab('attach')" id="tab-attach-btn" class="tab-btn">📎 Bilder</button>
       <button onclick="switchTab('wt')" id="tab-wt-btn" class="tab-btn">🌳 Worktree</button>
+      <button onclick="shareTicketLink()" title="Direktlink kopieren">🔗 Share</button>
       <span class="toast" id="mh-toast" style="margin-left:auto"></span>
       <button class="danger" onclick="deleteTicket()" title="Ticket löschen">🗑 Löschen</button>
       <button class="close" onclick="closeModal()" title="Schließen (ESC)">×</button>
@@ -832,7 +983,7 @@ def render_page(project=None):
           <div class="form-row" style="flex:1"><label>Prio</label><select id="f-prio"><option>P0</option><option>P1</option><option>P2</option></select></div>
         </div>
         <div style="display:flex;gap:10px">
-          <div class="form-row" style="flex:1"><label>Tag (Cluster)</label><input id="f-tag" type="text" placeholder="z.B. backend, frontend, infra"></div>
+          <div class="form-row" style="flex:1"><label>Tag (Cluster)</label><input id="f-tag" type="text" placeholder="z.B. backend"></div>
           <div class="form-row" style="flex:1"><label>Parent (Hierarchie)</label><select id="f-parent"></select></div>
         </div>
         <div class="form-row"><label>Content (Markdown — §1–§15)</label><textarea id="f-content"></textarea></div>
@@ -872,10 +1023,7 @@ def render_page(project=None):
   </div>
 </div>
 
-<div class="footer">
-  <img src="/assets/logo.svg" alt="" style="height:14px;vertical-align:-2px;margin-right:6px;opacity:0.7">
-  progr3ssboard · SQLite: <code>board.db</code> · optionaler Markdown-Importer: <code>python3 board-db.py migrate</code>
-</div>
+<div class="footer">progr3ssboard · SQLite: board.db · Migration: <code>python3 board-db.py migrate</code></div>
 
 <script>
 const ALLOWED_STATUS = {json.dumps(ALLOWED_STATUS)};
@@ -885,13 +1033,317 @@ let currentId = null;
 let currentData = null;
 let allTicketIds = [];   // für Parent-Dropdown
 
+async function openIter(ticketId, iterNum) {{
+  await openTicket(ticketId);
+  setTimeout(() => {{
+    const body = document.getElementById('mh-body');
+    if (!body) return;
+    const re = new RegExp('Iter[\\\\-\\\\s]*' + iterNum + '\\\\b');
+    for (const h of body.querySelectorAll('h1,h2,h3,h4,strong')) {{
+      if (re.test(h.textContent)) {{
+        h.scrollIntoView({{behavior:'smooth', block:'start'}});
+        const orig = h.style.background;
+        h.style.background = '#ff9933';
+        h.style.color = '#000';
+        setTimeout(() => {{ h.style.background = orig; h.style.color = ''; }}, 2200);
+        break;
+      }}
+    }}
+  }}, 250);
+}}
+
+function _renderMd(md) {{
+  if (!md) return '<p>(leer)</p>';
+  let h = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  h = h.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+  h = h.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+  h = h.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  h = h.replace(/\\n/g, '<br>');
+  return h;
+}}
+
+function _splitBugContent(md, dbIters) {{
+  // dbIters = currentData.iterations (DB-Source) — wird mit MD-Detection gemerged
+  if (!md) md = '';
+  // MD-Detection: ### Headers + **Bold-Marker** (auch mid-line)
+  const re = /(?:### (?:§\\d+[^\\n]*?)?Iter[\\-\\s]*(\\d+)[^\\n]*|\\*\\*Iter[\\-\\s]*(\\d+)[^*]{{0,400}}?\\*\\*)/g;
+  const matches = [...md.matchAll(re)];
+  const mdIters = new Map();
+  for (const m of matches) {{
+    const num = parseInt(m[1] || m[2], 10);
+    if (!mdIters.has(num)) {{
+      mdIters.set(num, {{num, header: m[0].replace(/^###\\s*/, '').replace(/^\\*\\*|\\*\\*$/g, '').trim().substring(0, 100), index: m.index, match: m}});
+    }}
+  }}
+  // DB-Iters reinmergen
+  const allIters = new Map(mdIters);
+  if (dbIters && dbIters.length) {{
+    for (const di of dbIters) {{
+      const n = di.iter_num;
+      if (!allIters.has(n)) {{
+        // DB-only: kein MD-Inhalt vorhanden, nur Label
+        allIters.set(n, {{num: n, header: di.label || ('Iter-' + n), index: -1, match: null, dbOnly: true, deployed: di.deployed, deploy_date: di.deploy_date, kind: di.kind}});
+      }} else {{
+        // merge: erweitere mit DB-Metadaten
+        const existing = allIters.get(n);
+        existing.deployed = di.deployed;
+        existing.deploy_date = di.deploy_date;
+        existing.kind = di.kind;
+      }}
+    }}
+  }}
+  if (!allIters.size) return {{analysis: md, iters: []}};
+  const sorted = [...allIters.values()].sort((a,b) => a.num - b.num);
+  // Analysis = MD bis zum ersten MD-detected Iter (oder kompletter MD wenn nur DB-Iters)
+  const firstMdIdx = matches.length ? matches[0].index : md.length;
+  const analysis = md.slice(0, firstMdIdx);
+  // Content pro Iter: MD-Slice von index bis zum nächsten Iter-Index (oder Ende)
+  const mdSorted = [...mdIters.values()].sort((a,b) => a.index - b.index);
+  const iters = sorted.map(it => {{
+    let content = '';
+    if (it.dbOnly) {{
+      content = '*(Aus iterations-DB: Label = ' + (it.header || '—') + ')*';
+      if (it.deploy_date) content += '\\n\\n**Deploy:** ' + it.deploy_date;
+      if (it.kind) content += ' · **Kind:** ' + it.kind;
+    }} else {{
+      const mdIdx = mdSorted.findIndex(x => x.num === it.num);
+      const start = mdSorted[mdIdx].index;
+      const end = (mdIdx+1 < mdSorted.length) ? mdSorted[mdIdx+1].index : md.length;
+      content = md.slice(start, end);
+    }}
+    return {{num: it.num, header: it.header, content, deployed: it.deployed, kind: it.kind}};
+  }});
+  return {{analysis, iters}};
+}}
+
+window.__currentIters = [];
+window.__currentTicket = null;
+window.__currentViewTab = 'description';
+
+function _renderStructuredDescription(htmlSource) {{
+  // Parse content_html, finde §-Sections, restrukturiere
+  if (!htmlSource) return '<em>(kein Inhalt)</em>';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = htmlSource;
+  const sections = [...tmp.querySelectorAll('.t-section')];
+  if (!sections.length) return htmlSource; // Fallback wenn keine §-Struktur
+  let userStory = null;
+  let status = null;
+  const others = [];
+  const STATUS_RE = /§\\s*1\\b|Status/i;
+  const STORY_RE = /§\\s*3\\b|Anforderung|Soll|User.Story|FEATURE.REQUEST/i;
+  for (const sec of sections) {{
+    const h3 = sec.querySelector('h3');
+    if (!h3) {{ others.push(sec); continue; }}
+    const txt = h3.textContent;
+    if (!userStory && STORY_RE.test(txt)) {{ userStory = sec; continue; }}
+    if (!status && STATUS_RE.test(txt)) {{ status = sec; continue; }}
+    others.push(sec);
+  }}
+  const extractBody = (sec) => {{
+    const h3 = sec.querySelector('h3');
+    if (h3) h3.remove();
+    return sec.innerHTML;
+  }};
+  let out = '';
+  if (userStory) {{
+    out += '<div class="hero-section hero-userstory">' +
+      '<div class="hero-label">🎯 Anforderung · User-Story</div>' +
+      '<div class="hero-body">' + extractBody(userStory) + '</div>' +
+      '</div>';
+  }}
+  if (status) {{
+    out += '<div class="hero-section hero-status">' +
+      '<div class="hero-label">📌 Status</div>' +
+      '<div class="hero-body">' + extractBody(status) + '</div>' +
+      '</div>';
+  }}
+  // Other sections as collapsible details
+  if (others.length) {{
+    out += '<div class="sections-toolbar">' +
+      '<span style="color:#888;font-size:11px;margin-right:8px">Weitere Sektionen:</span>' +
+      '<button class="iter-quick-btn" onclick="_toggleAllSections(true)">▸ Alle auf</button>' +
+      '<button class="iter-quick-btn" onclick="_toggleAllSections(false)">▾ Alle zu</button>' +
+      '</div>';
+    for (const sec of others) {{
+      const h3 = sec.querySelector('h3');
+      const title = h3 ? h3.textContent : 'Section';
+      if (h3) h3.remove();
+      out += '<details class="section-collapsible">' +
+        '<summary>' + title + '</summary>' +
+        '<div class="section-collapsible-body">' + sec.innerHTML + '</div>' +
+        '</details>';
+    }}
+  }}
+  return out;
+}}
+function _toggleAllSections(open) {{
+  document.querySelectorAll('details.section-collapsible').forEach(d => d.open = open);
+}}
+
+function _switchViewTab(tab) {{
+  window.__currentViewTab = tab;
+  _renderViewTabs();
+}}
+
+function _renderViewTabs() {{
+  const t = window.__currentTicket;
+  if (!t) return;
+  const iters = window.__currentIters || [];
+  const tab = window.__currentViewTab;
+  const md = t.content_md || '';
+  const {{analysis}} = _splitBugContent(md, t.iterations || []);
+
+  const tabsBar =
+    '<div class="view-tabs-bar">' +
+    '<button class="view-tab-btn ' + (tab==='description'?'active':'') + '" onclick="_switchViewTab(\\'description\\')">📋 Beschreibung</button>' +
+    '<button class="view-tab-btn ' + (tab==='iters'?'active':'') + '" onclick="_switchViewTab(\\'iters\\')">🔄 Iterations <span class="badge-num">' + iters.length + '</span></button>' +
+    '<button class="view-tab-btn ' + (tab==='meta'?'active':'') + '" onclick="_switchViewTab(\\'meta\\')">📊 Meta</button>' +
+    '</div>';
+
+  let content = '';
+  if (tab === 'description') {{
+    // Struktur: User-Story (§3) TOP, Status (§1) zweite Position, Rest collapsible
+    content = '<div class="tab-content-area">' + _renderStructuredDescription(t.content_html || '') + '</div>';
+  }} else if (tab === 'iters') {{
+    if (!iters.length) {{
+      content = '<div class="tab-content-area"><em style="color:#888">Keine Iterations bisher.</em></div>';
+    }} else {{
+      // Aktive Iter = höchste iter_num (= jüngste / aktuell getestet)
+      const maxNum = Math.max(...iters.map(x => x.num));
+      const kindIcon = {{fix:'🔧',revert:'↩','krücke':'⚠',recur:'♻'}};
+      const items = iters.map(it => {{
+        const icon = kindIcon[it.kind] || '🔧';
+        const isActive = (it.num === maxNum);
+        const deployedMark = it.deployed ? ' <span class="deploy-badge">▸ deployed</span>' : '';
+        const activeMark = isActive ? ' <span class="live-badge">🟢 LIVE — aktuell getestet</span>' : '';
+        const safeHdr = String(it.header || '').replace(/[<>&]/g, c => ({{'<':'&lt;','>':'&gt;','&':'&amp;'}})[c]);
+        const body = _renderMd(it.content || '');
+        const openAttr = isActive ? ' open' : '';
+        const klass = 'iter-collapsible' + (isActive ? ' iter-active' : '');
+        return '<details class="' + klass + '" data-iter="' + it.num + '"' + openAttr + '>' +
+          '<summary><strong>' + icon + ' Iter-' + it.num + '</strong> — ' + safeHdr.substring(0,120) + deployedMark + activeMark + '</summary>' +
+          '<div class="iter-collapsible-body">' + body + '</div>' +
+          '</details>';
+      }}).join('');
+      content =
+        '<div class="tab-content-area">' +
+        '<div class="iter-toolbar">' +
+        '<button class="iter-quick-btn" onclick="_toggleAllIters(true)">▸ Alle öffnen</button>' +
+        '<button class="iter-quick-btn" onclick="_toggleAllIters(false)">▾ Alle zu</button>' +
+        '</div>' +
+        items +
+        '</div>';
+    }}
+  }} else if (tab === 'meta') {{
+    const days = t.days_since_reset !== undefined && t.days_since_reset !== null ? t.days_since_reset + 'd' : '—';
+    const created = t.created_date || '—';
+    const lastReset = t.last_reset || '—';
+    const testsRatio = (t.tests_passed||0) + '/' + (t.tests_total||0);
+    const safe = s => String(s||'').replace(/[<>&]/g, c => ({{'<':'&lt;','>':'&gt;','&':'&amp;'}})[c]);
+    // Worktree-Hinweis: bei in-progress + leerem Worktree warnen
+    const isActive = ['progress','reopened','deployed','testing'].indexOf(t.status) >= 0;
+    const wtMissing = isActive && !t.worktree_path;
+    const wtBanner = wtMissing
+      ? '<div class="wt-warn">⚠ <strong>Worktree fehlt!</strong> Ticket ist in Bearbeitung (Status: ' + safe(t.status) + ') aber kein Worktree zugewiesen. <br>→ Im „🌳 Worktree"-Tab erstellen (Default: <code>~/progr3ssboard-worktrees/' + safe(t.id || currentId) + '</code> · Branch <code>ticket/' + safe(t.id || currentId) + '</code>)</div>'
+      : '';
+    content =
+      '<div class="tab-content-area">' +
+      wtBanner +
+      '<div class="meta-grid">' +
+      '<div class="meta-row"><span class="meta-key">Type</span><span class="meta-val">' + safe(t.type) + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Status</span><span class="meta-val">' + safe(t.status) + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Priorität</span><span class="meta-val">' + safe(t.prio) + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Tag</span><span class="meta-val">' + safe(t.tag) + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Tests</span><span class="meta-val">' + testsRatio + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Iter-Counter</span><span class="meta-val">' + (t.iter_count||0) + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Days-since-Reset</span><span class="meta-val">' + days + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Created</span><span class="meta-val">' + created + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Last-Reset</span><span class="meta-val">' + lastReset + '</span></div>' +
+      '<div class="meta-row"><span class="meta-key">Parent</span><span class="meta-val">' + (t.parent_id || '—') + '</span></div>' +
+      '<div class="meta-row' + (wtMissing ? ' meta-row-warn' : '') + '"><span class="meta-key">Worktree</span><span class="meta-val">' + (t.worktree_path || '<em style="color:#e74c3c">(nicht zugewiesen)</em>') + '</span></div>' +
+      '<div class="meta-row' + (wtMissing ? ' meta-row-warn' : '') + '"><span class="meta-key">Branch</span><span class="meta-val">' + (t.worktree_branch || '<em style="color:#e74c3c">(nicht zugewiesen)</em>') + '</span></div>' +
+      '</div></div>';
+  }}
+
+  document.getElementById('mh-body').innerHTML = tabsBar + content;
+}}
+
+function _collapseIterSections(bodyEl) {{
+  // Findet h2-h4-Headers mit "Iter-N" Text, wickelt nachfolgende Siblings in <details>
+  const iterRe = /\\bIter[\\-\\s]*(\\d+)\\b/;
+  const allHeaders = [...bodyEl.querySelectorAll('h2, h3, h4')];
+  const iterHeaders = allHeaders.filter(h => iterRe.test(h.textContent));
+  if (!iterHeaders.length) return;
+  // Vom letzten zum ersten arbeiten (DOM-Manipulation am Ende ist sicherer)
+  for (let i = iterHeaders.length - 1; i >= 0; i--) {{
+    const hdr = iterHeaders[i];
+    if (!hdr.parentNode) continue;
+    const num = (iterRe.exec(hdr.textContent) || [])[1] || '?';
+    const details = document.createElement('details');
+    details.className = 'iter-collapsible';
+    details.setAttribute('data-iter', num);
+    // alle Siblings bis zum nächsten h1-h4 sammeln
+    const siblings = [];
+    let cur = hdr.nextElementSibling;
+    while (cur && !/^H[1-4]$/.test(cur.tagName)) {{
+      siblings.push(cur);
+      cur = cur.nextElementSibling;
+    }}
+    const summary = document.createElement('summary');
+    summary.innerHTML = hdr.innerHTML;
+    details.appendChild(summary);
+    siblings.forEach(s => details.appendChild(s));
+    hdr.parentNode.replaceChild(details, hdr);
+  }}
+}}
+
+function _toggleAllIters(open) {{
+  document.querySelectorAll('details.iter-collapsible').forEach(d => d.open = open);
+}}
+
+function scrollToIter(num) {{
+  // Sucht im rendered content_html nach Iter-N-Heading oder **Iter-N**-Marker, scrollt + highlightet
+  const body = document.getElementById('mh-body');
+  if (!body) return;
+  const re = new RegExp('Iter[\\\\-\\\\s]*' + num + '\\\\b');
+  // Try headings first
+  let found = null;
+  for (const el of body.querySelectorAll('h1, h2, h3, h4, h5')) {{
+    if (re.test(el.textContent)) {{ found = el; break; }}
+  }}
+  // Fallback: <strong> (Bold Markers)
+  if (!found) {{
+    for (const el of body.querySelectorAll('strong')) {{
+      if (re.test(el.textContent)) {{ found = el; break; }}
+    }}
+  }}
+  if (found) {{
+    found.scrollIntoView({{behavior:'smooth', block:'start'}});
+    const orig = found.style.background;
+    const origC = found.style.color;
+    found.style.background = '#ff9933';
+    found.style.color = '#000';
+    setTimeout(() => {{ found.style.background = orig; found.style.color = origC; }}, 2200);
+  }}
+}}
+
 async function openTicket(id) {{
   const res = await fetch(apiUrl('/api/tickets/' + id));
   if (!res.ok) {{ alert('Ticket nicht gefunden: '+id); return; }}
   currentData = await res.json();
   currentId = id;
+  // URL synchronisieren: ?ticket=B-XX
+  const _u = new URL(window.location);
+  _u.searchParams.set('ticket', id);
+  window.history.replaceState({{}}, '', _u);
   document.getElementById('mh-id').textContent = id;
-  document.getElementById('mh-body').innerHTML = currentData.content_html || '<p>(leer)</p>';
+  // Tabbed detail modal: 3 tabs (Description / Iterations / Meta)
+  const {{analysis, iters}} = _splitBugContent(currentData.content_md || '', currentData.iterations || []);
+  window.__currentIters = iters;
+  window.__currentTicket = currentData;
+  _renderViewTabs();
   document.getElementById('f-title').value = currentData.title || '';
   document.getElementById('f-content').value = currentData.content_md || '';
   document.getElementById('f-tag').value = currentData.tag || '';
@@ -1123,7 +1575,33 @@ function closeModal(ev) {{
   if (ev && ev.target.id !== 'modal' && ev.type === 'click') return;
   document.getElementById('modal').classList.remove('open');
   currentId = null; currentData = null;
+  // URL-Cleanup: ticket-Query-Param entfernen
+  const url = new URL(window.location);
+  url.searchParams.delete('ticket');
+  window.history.replaceState({{}}, '', url);
 }}
+
+function shareTicketLink() {{
+  if (!currentId) return;
+  const url = new URL(window.location);
+  url.searchParams.set('ticket', currentId);
+  const link = url.toString();
+  navigator.clipboard.writeText(link).then(() => {{
+    const toast = document.getElementById('mh-toast');
+    if (toast) {{
+      toast.textContent = '✓ Link kopiert: ' + currentId;
+      toast.style.color = '#27ae60';
+      setTimeout(() => {{ toast.textContent = ''; }}, 2500);
+    }}
+  }}).catch(() => alert('Link konnte nicht kopiert werden:\\n' + link));
+}}
+
+// Auto-Open beim Page-Load wenn ?ticket=B-XX in URL
+window.addEventListener('DOMContentLoaded', () => {{
+  const params = new URLSearchParams(window.location.search);
+  const tid = params.get('ticket');
+  if (tid) setTimeout(() => openTicket(tid), 300);
+}});
 
 async function saveTicket() {{
   if (!currentId) return;
@@ -1311,6 +1789,10 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype + "; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        # Cache-Buster: HTML/JSON/CSS/JS NIE cachen — verhindert stale Browser-Cache
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(body)
 
@@ -1327,14 +1809,15 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path == "/":
                 return self._send(200, render_page(project))
-            # Static assets (logo etc.) — Fork-customizable: replace files in assets/
-            if u.path.startswith("/assets/"):
-                safe = re.sub(r'[^A-Za-z0-9._/-]', '', u.path[len("/assets/"):])[:120]
-                fp = Path(__file__).resolve().parent / "assets" / safe
-                if not fp.is_file() or ".." in safe:
-                    return self._json(404, {"error":"not found"})
-                mime, _ = mimetypes.guess_type(safe)
-                return self._send(200, fp.read_bytes(), mime or 'application/octet-stream')
+            if u.path == "/backlog":
+                # P3B-10 v0.2.0: BACKLOG-Board als Sub-Route, importiert backlog-html.py
+                import importlib.util as _iu
+                _spec = _iu.spec_from_file_location("backlog_html", Path(__file__).resolve().parent / "backlog-html.py")
+                _bh = _iu.module_from_spec(_spec); _spec.loader.exec_module(_bh)
+                projects = _bh.list_projects()
+                if project not in projects:
+                    project = projects[0] if projects else DEFAULT_PROJECT
+                return self._send(200, _bh.render_page(project, projects))
             if u.path == "/api/tickets":
                 conn = connect(project)
                 rows = [dict(r) for r in conn.execute("SELECT id,type,status,tag,prio,title,iter_count FROM tickets ORDER BY id")]
@@ -1529,7 +2012,10 @@ def main():
     ap.add_argument("--serve", action="store_true")
     ap.add_argument("--port", type=int, default=8766)
     ap.add_argument("--host", default="0.0.0.0", help="Bind-Adresse (default 0.0.0.0 = LAN/Tailscale erreichbar; 127.0.0.1 = nur lokal)")
+    ap.add_argument("--demo", action="store_true", help="Demo-Instanz: zeigt ein DEMO-Badge im Board-Header (für die öffentliche Showcase-Instanz)")
     args = ap.parse_args()
+    global DEMO_MODE
+    DEMO_MODE = args.demo
     if args.serve:
         print(f"📋 progr3ssboard live · bind={args.host}:{args.port}  (Strg+C zum Stoppen)")
         for u in _local_urls(args.port):

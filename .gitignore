@@ -2,6 +2,12 @@
 boards/
 !boards/.gitkeep
 
+# Lokale, maintainer-spezifische Leak-Suchmuster für scripts/check.sh — NIE committen
+scripts/leak-patterns.local
+
+# Generierte Backlog-HTML (backlog-html.py --out)
+backlog.html
+
 # Python
 __pycache__/
 *.pyc

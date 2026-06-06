@@ -11,7 +11,15 @@ EX="--exclude-dir=.git --exclude-dir=boards --exclude-dir=scripts --exclude-dir=
 
 # Brand-Liste in separater Variable damit grep sie nicht in sich selbst findet
 BRANDS='jira|trello|atlassian|confluence|bitbucket|linear[ -]app|notion app|asana|monday\.com|clickup|gitlab|gitea|copilot|jetbrains|intellij|cursor-ide|cursor\.ai|cursor\.com|anysphere'
-LEAKS='BACKLOG|boards|workspace'
+# Personal/Project-Leak-Muster werden NICHT im public Repo hardcodiert (die Liste
+# selbst wäre sonst ein Leak). Lade sie aus einer gitignorierten lokalen Datei;
+# Fallback = generische Defaults. Eigene Begriffe → scripts/leak-patterns.local
+# (eine pro Zeile, '#'-Kommentare erlaubt).
+LEAKS_FILE="$(dirname "$0")/leak-patterns.local"
+if [ -f "$LEAKS_FILE" ]; then
+  LEAKS="$(grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$LEAKS_FILE" | paste -sd '|' -)"
+fi
+LEAKS="${LEAKS:-/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|BEGIN (RSA|OPENSSH) PRIVATE KEY|secret[_-]?key|api[_-]?key[[:space:]]*=}"
 
 echo "=== 1) Trademark-Scan ==="
 hits=$(grep -rniE "$BRANDS" . $EX 2>/dev/null | wc -l | tr -d ' ')
