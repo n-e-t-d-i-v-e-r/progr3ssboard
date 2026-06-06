@@ -1,0 +1,29 @@
+#!/bin/bash
+# pre-push hook — runs the pre-push audit (scripts/check.sh) before every push
+# and aborts the push if it reports findings (trademark or leak hits).
+#
+# This is the committed TEMPLATE. Install it into your local .git/hooks/ with:
+#     scripts/install-hooks.sh
+# Deliberate one-off bypass:
+#     git push --no-verify
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+check="$repo_root/scripts/check.sh"
+
+echo "▶ pre-push: running pre-push audit (scripts/check.sh) ..."
+
+if [ ! -x "$check" ]; then
+  echo "✗ pre-push ABORTED — scripts/check.sh missing or not executable; refusing unaudited push."
+  echo "  (deliberate bypass: git push --no-verify)"
+  exit 1
+fi
+
+if "$check"; then
+  echo "✓ pre-push: audit clean — push allowed."
+  exit 0
+else
+  echo ""
+  echo "✗ pre-push ABORTED — check.sh reported findings. Push refused."
+  echo "  Fix the findings, then push again. (deliberate bypass: git push --no-verify)"
+  exit 1
+fi
