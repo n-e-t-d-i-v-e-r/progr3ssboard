@@ -23,7 +23,20 @@ from urllib.parse import urlparse, parse_qs
 
 # Module-Imports
 HERE = Path(__file__).resolve().parent
-REPO = HERE  # backlog-html.py liegt im Repo-Root (neben progr3ssboard.py + board-db.py)
+
+# Layout-robust: REPO = das naechste Verzeichnis aufwaerts, das ein 'boards/' enthaelt.
+# Funktioniert in JEDEM Deployment-Layout (OSS: backlog-html.py im Repo-Root neben boards/;
+# Hub-Deploy: scripts/backlog-html.py mit boards/ eine Ebene hoeher) — kein fragiles parent-Counting,
+# das beim Re-Deploy in einen anderen Verzeichnis-Layout still bricht.
+def _resolve_repo(start):
+    p = start
+    while True:
+        if (p / "boards").is_dir():
+            return p
+        if p == p.parent:        # Filesystem-Root erreicht, nichts gefunden
+            return start         # Fallback: Repo-Root-Layout (boards/ als Geschwister)
+        p = p.parent
+REPO = _resolve_repo(HERE)
 
 # board_main_tag.py (SSoT für main:-Schema)
 sys.path.insert(0, str(HERE))
